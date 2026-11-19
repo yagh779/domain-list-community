@@ -65,6 +65,9 @@ go run ./cmd/build <v2fly-dlc.dat> data/cn-overseas dist/dlc.dat
 | `data/cn-overseas` | 供给 `cn@!cn` 的 `@!cn` 覆盖数据 |
 | `sync-state.json` | 上次构建的标签指纹 |
 
+上游的 `data/` 目录（上千个分类列表）、上游构建程序及其测试与辅助包均已刻意移除——
+本分支只保留重新打包流水线真正需要的文件。
+
 域名规则语法（`domain:`、`full:`、`keyword:`、`regexp:`、`@attr`、`include:`）
 遵循上游；详见
 [上游 README](https://github.com/v2fly/domain-list-community#structure-of-data)。

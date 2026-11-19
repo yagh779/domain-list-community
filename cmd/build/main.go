@@ -5,9 +5,9 @@
 // the domains that actually feed its two tags:
 //
 //   - "cn":             v2fly's cn entry plus the cn-overseas overlay, keeping
-//                       only the domains tagged @!cn (=> tag cn@!cn)
+//     only the domains tagged @!cn (=> tag cn@!cn)
 //   - "geolocation-!cn": v2fly's geolocation-!cn entry, keeping only the
-//                       domains tagged @cn (=> tag geolocation-!cn@cn)
+//     domains tagged @cn (=> tag geolocation-!cn@cn)
 //
 // Every other domain is dropped, so the published dlc.dat stays tiny while
 // the two tags sing-geosite builds are byte-for-byte identical.

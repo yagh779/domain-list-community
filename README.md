@@ -68,6 +68,10 @@ go run ./cmd/build <v2fly-dlc.dat> data/cn-overseas dist/dlc.dat
 | `data/cn-overseas` | `@!cn`-tagged overlay feeding `cn@!cn` |
 | `sync-state.json` | Last-built tag fingerprints |
 
+The upstream `data/` tree (thousands of per-category lists), the upstream build
+program, its tests and helper packages are intentionally not kept — this fork
+only retains what the repackaging pipeline needs.
+
 Domain rule syntax (`domain:`, `full:`, `keyword:`, `regexp:`, `@attr`, `include:`)
 follows upstream; see the
 [upstream README](https://github.com/v2fly/domain-list-community#structure-of-data)
