@@ -10,6 +10,9 @@ name: Build dlc.dat
 #                        @cn => tag geolocation-!cn@cn
 # No other domain is built.
 #
+# The trimmed dlc.dat and dlc.dat.sha256sum are pushed to the `release` branch
+# (no GitHub Release is created).
+#
 # A rebuild only happens when the data that actually feeds sing-geosite's two
 # tags changed:
 #   - geolocation-!cn@cn : compared against the upstream v2fly dlc.dat
@@ -117,17 +120,21 @@ jobs:
             git push origin master
           fi
 
-      - name: Publish release
+      - name: Publish to release branch
         if: steps.detect.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="$(date -u +%Y%m%d%H%M%S)"
-          gh release create "$TAG" \
-            --target "$(git rev-parse HEAD)" \
-            --title "$TAG" \
-            --notes "dlc.dat built from v2fly data with the cn-overseas overlay (entries: cn, geolocation-!cn)" \
-            --latest \
-            dist/dlc.dat dist/dlc.dat.sha256sum
-          echo "Released $TAG"
+          work="$(mktemp -d)"
+          cp dist/dlc.dat dist/dlc.dat.sha256sum "$work"/
+          cd "$work"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dlc.dat dlc.dat.sha256sum
+          git commit -q -m "Update dlc.dat"
+          git branch -M release
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -f origin release
+          echo "Published dlc.dat to the release branch"
