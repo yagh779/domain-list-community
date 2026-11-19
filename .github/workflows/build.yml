@@ -2,11 +2,13 @@ name: Build dlc.dat
 
 # Produces the minimal dlc.dat consumed by yagh779/sing-geosite.
 #
-# Only two entries are shipped:
-#   - "cn"             : upstream v2fly cn plus the data/cn-overseas overlay,
-#                        where every overlay domain is tagged @!cn
-#   - "geolocation-!cn": verbatim from upstream v2fly
-# No other list is built.
+# Only two entries are shipped, each trimmed to just the domains that feed a
+# sing-geosite tag:
+#   - "cn"             : the data/cn-overseas overlay (domains tagged @!cn)
+#                        => tag cn@!cn
+#   - "geolocation-!cn": upstream v2fly geolocation-!cn, only domains tagged
+#                        @cn => tag geolocation-!cn@cn
+# No other domain is built.
 #
 # A rebuild only happens when the data that actually feeds sing-geosite's two
 # tags changed:
@@ -67,8 +69,8 @@ jobs:
           go build -o .work/sync ./cmd/sync
           GEO="$(.work/sync hashtag .work/v2fly/dlc.dat 'geolocation-!cn@cn' 2>/dev/null)"
           CN="$(.work/sync hashtag .work/nekolsd/dlc.dat 'cn@!cn' 2>/dev/null)"
-          PREV_GEO="$(jq -r '.geo // empty' sync-state.json)"
-          PREV_CN="$(jq -r '.cn // empty' sync-state.json)"
+          PREV_GEO="$(jq -r '."geolocation-!cn@cn" // empty' sync-state.json)"
+          PREV_CN="$(jq -r '."cn@!cn" // empty' sync-state.json)"
           GEO_CHANGED=false
           CN_CHANGED=false
           if [ "$GEO" != "$PREV_GEO" ]; then GEO_CHANGED=true; fi
@@ -106,7 +108,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           jq -n --arg geo "${{ steps.detect.outputs.geo }}" --arg cn "${{ steps.detect.outputs.cn }}" \
-            '{geo: $geo, cn: $cn}' > sync-state.json
+            '{ "cn@!cn": $cn, "geolocation-!cn@cn": $geo }' > sync-state.json
           git add sync-state.json data/cn-overseas
           if git diff --cached --quiet; then
             echo "No tracked data change to commit."

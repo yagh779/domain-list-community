@@ -1,13 +1,16 @@
 // Command build repackages a minimal dlc.dat for sing-geosite.
 //
 // It takes the latest v2fly/domain-list-community dlc.dat and produces a new
-// dlc.dat containing only the two entries sing-geosite needs:
+// dlc.dat containing only the two entries sing-geosite needs, trimmed to just
+// the domains that actually feed its two tags:
 //
-//   - "cn":            v2fly's cn entry plus the cn-overseas overlay, where
-//                      every overlay domain is tagged @!cn
-//   - "geolocation-!cn": copied verbatim from v2fly
+//   - "cn":             v2fly's cn entry plus the cn-overseas overlay, keeping
+//                       only the domains tagged @!cn (=> tag cn@!cn)
+//   - "geolocation-!cn": v2fly's geolocation-!cn entry, keeping only the
+//                       domains tagged @cn (=> tag geolocation-!cn@cn)
 //
-// No other lists are built, which keeps the job minimal.
+// Every other domain is dropped, so the published dlc.dat stays tiny while
+// the two tags sing-geosite builds are byte-for-byte identical.
 package main
 
 import (
@@ -110,6 +113,17 @@ func parseOverseas(path string) []*routercommon.Domain {
 	return out
 }
 
+// trimByAttr keeps only the domains of entry that carry attr.
+func trimByAttr(entry *routercommon.GeoSite, attr string) *routercommon.GeoSite {
+	trimmed := &routercommon.GeoSite{CountryCode: entry.CountryCode}
+	for _, d := range entry.Domain {
+		if hasAttr(d, attr) {
+			trimmed.Domain = append(trimmed.Domain, d)
+		}
+	}
+	return trimmed
+}
+
 func main() {
 	if len(os.Args) != 4 {
 		fmt.Fprintln(os.Stderr, "usage: build <v2fly-dlc.dat> <cn-overseas-file> <out-dlc.dat>")
@@ -145,10 +159,14 @@ func main() {
 		index[key(od.Type, od.Value)] = od
 	}
 
+	// Keep only the domains that actually feed the two sing-geosite tags.
+	cnTrimmed := trimByAttr(cnClone, "!cn")
+	geoTrimmed := trimByAttr(proto.Clone(geo).(*routercommon.GeoSite), "cn")
+
 	out := &routercommon.GeoSiteList{
 		Entry: []*routercommon.GeoSite{
-			cnClone,
-			proto.Clone(geo).(*routercommon.GeoSite),
+			cnTrimmed,
+			geoTrimmed,
 		},
 	}
 	b, err := proto.Marshal(out)
@@ -160,6 +178,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "write:", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s: cn=%d domains (+%d overlay), geolocation-!cn=%d domains\n",
-		os.Args[3], len(cnClone.Domain), len(overseas), len(geo.Domain))
+	fmt.Fprintf(os.Stderr, "wrote %s: cn(!cn)=%d domains, geolocation-!cn(cn)=%d domains\n",
+		os.Args[3], len(cnTrimmed.Domain), len(geoTrimmed.Domain))
 }
