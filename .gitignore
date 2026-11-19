@@ -10,3 +10,8 @@
 # Exported plaintext lists.
 /*.txt
 /*.yml
+
+# Local build scratch space.
+/.work/
+/dist/
+/.cache/

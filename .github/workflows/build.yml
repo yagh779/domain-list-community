@@ -1,74 +1,131 @@
 name: Build dlc.dat
+
+# Produces the minimal dlc.dat consumed by yagh779/sing-geosite.
+#
+# Only two entries are shipped:
+#   - "cn"             : upstream v2fly cn plus the data/cn-overseas overlay,
+#                        where every overlay domain is tagged @!cn
+#   - "geolocation-!cn": verbatim from upstream v2fly
+# No other list is built.
+#
+# A rebuild only happens when the data that actually feeds sing-geosite's two
+# tags changed:
+#   - geolocation-!cn@cn : compared against the upstream v2fly dlc.dat
+#   - cn@!cn             : data/cn-overseas, kept in sync with
+#                          nekolsd/domain-list-community cn@!cn
+# If neither changed, the job stops before building anything.
+
 on:
-  push:
-    branches:
-      - master
-    paths-ignore:
-      - "**/README.md"
+  schedule:
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force a rebuild even if no data changed
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-dlc-dat
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout codebase
+      - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
-          path: code
+          ref: master
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version-file: code/go.mod
-          cache-dependency-path: code/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
-      - name: Set variables
-        run: |
-          echo "RELEASE_NAME=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
-          echo "TAG_NAME=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
-        shell: bash
-
-      - name: Build dlc.dat and plain lists
-        run: |
-          cd code || exit 1
-          go run ./ --outputdir=../ --exportlists=category-ads-all,tld-cn,cn,tld-\!cn,geolocation-\!cn,apple,icloud
-          go run ./cmd/datdump/main.go --inputdata=../dlc.dat --outputdir=../ --exportlists=_all_
-          cd ../ && rm -rf code
-
-      - name: Generate dlc.dat sha256 hash
-        run: |
-          sha256sum dlc.dat > dlc.dat.sha256sum
-          sha256sum dlc.dat_plain.yml > dlc.dat_plain.yml.sha256sum
-
-      - name: Generate Zip
-        run: |
-          zip -9 dlc.dat.zip dlc.dat
-          sha256sum dlc.dat.zip > dlc.dat.zip.sha256sum
-
-      - name: Generate XZ
-        run: |
-          xz -z -9 -k dlc.dat
-          sha256sum dlc.dat.xz > dlc.dat.xz.sha256sum
-
-      - name: Git push assets to "release" branch
-        run: |
-          git init
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b release
-          git add *.txt *.sha256sum dlc.dat dlc.dat_plain.yml dlc.dat.zip dlc.dat.xz
-          git commit -m "${{ env.RELEASE_NAME }}"
-          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
-          git push -f -u origin release
-
-      - name: Release and upload assets
-        run: |
-          gh release create ${{ env.TAG_NAME }} --target ${{ github.sha }} --generate-notes --latest --title ${{ env.RELEASE_NAME }} ./dlc.dat ./dlc.dat.* ./dlc.dat_plain.yml ./dlc.dat_plain.yml.*
+      - name: Download source dlc.dat files
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .work/v2fly .work/nekolsd
+          gh release download --repo v2fly/domain-list-community --pattern dlc.dat -D .work/v2fly --clobber
+          gh release download --repo nekolsd/domain-list-community --pattern dlc.dat -D .work/nekolsd --clobber
+
+      - name: Detect data changes
+        id: detect
+        env:
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          set -euo pipefail
+          go build -o .work/sync ./cmd/sync
+          GEO="$(.work/sync hashtag .work/v2fly/dlc.dat 'geolocation-!cn@cn' 2>/dev/null)"
+          CN="$(.work/sync hashtag .work/nekolsd/dlc.dat 'cn@!cn' 2>/dev/null)"
+          PREV_GEO="$(jq -r '.geo // empty' sync-state.json)"
+          PREV_CN="$(jq -r '.cn // empty' sync-state.json)"
+          GEO_CHANGED=false
+          CN_CHANGED=false
+          if [ "$GEO" != "$PREV_GEO" ]; then GEO_CHANGED=true; fi
+          if [ "$CN" != "$PREV_CN" ]; then CN_CHANGED=true; fi
+          if [ "$FORCE" = "true" ]; then GEO_CHANGED=true; CN_CHANGED=true; fi
+          echo "geo=$GEO" >> "$GITHUB_OUTPUT"
+          echo "cn=$CN" >> "$GITHUB_OUTPUT"
+          echo "geo_changed=$GEO_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "cn_changed=$CN_CHANGED" >> "$GITHUB_OUTPUT"
+          if [ "$GEO_CHANGED" = "true" ] || [ "$CN_CHANGED" = "true" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Data changed (geo_changed=$GEO_CHANGED cn_changed=$CN_CHANGED): will build."
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "No data change: skip build."
+          fi
+
+      - name: Update data/cn-overseas from nekolsd
+        if: steps.detect.outputs.cn_changed == 'true'
+        run: .work/sync extract-cn-overseas .work/nekolsd/dlc.dat data/cn-overseas
+
+      - name: Repackage minimal dlc.dat
+        if: steps.detect.outputs.build == 'true'
+        run: |
+          set -euo pipefail
+          go build -o .work/build ./cmd/build
+          rm -rf dist && mkdir -p dist
+          .work/build .work/v2fly/dlc.dat data/cn-overseas dist/dlc.dat
+          ( cd dist && sha256sum dlc.dat > dlc.dat.sha256sum && cat dlc.dat.sha256sum )
+
+      - name: Commit updated sync state
+        if: steps.detect.outputs.build == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          jq -n --arg geo "${{ steps.detect.outputs.geo }}" --arg cn "${{ steps.detect.outputs.cn }}" \
+            '{geo: $geo, cn: $cn}' > sync-state.json
+          git add sync-state.json data/cn-overseas
+          if git diff --cached --quiet; then
+            echo "No tracked data change to commit."
+          else
+            git commit -m "chore: sync cn-overseas and geolocation-!cn data"
+            git push origin master
+          fi
+
+      - name: Publish release
+        if: steps.detect.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="$(date -u +%Y%m%d%H%M%S)"
+          gh release create "$TAG" \
+            --target "$(git rev-parse HEAD)" \
+            --title "$TAG" \
+            --notes "dlc.dat built from v2fly data with the cn-overseas overlay (entries: cn, geolocation-!cn)" \
+            --latest \
+            dist/dlc.dat dist/dlc.dat.sha256sum
+          echo "Released $TAG"

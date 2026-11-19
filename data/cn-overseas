@@ -1,8 +1,7 @@
-# Domains that belong to Chinese services but have no access point in
-# mainland China (overseas/CDN nodes). Tagged @!cn so that the
-# sing-box tag "cn@!cn" (cn list ∩ !cn attribute) can be built.
-#
-# This list is included by data/cn.
+# Domains of Chinese services that have no access point in
+# mainland China (overseas/CDN nodes), tagged @!cn.
+# Auto-generated from nekolsd/domain-list-community cn@!cn.
+# Included by data/cn so that sing-box tag cn@!cn can be built.
 
 domain:ae-ad-1.myhuaweicloud.com @!cn
 domain:ae-rus.net @!cn
